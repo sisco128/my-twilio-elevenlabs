@@ -47,7 +47,7 @@ export function registerOutboundRoutes(fastify) {
 
   // Route to initiate outbound calls
   fastify.post("/outbound-call", async (request, reply) => {
-    const { number, prompt, first_message, parameters } = request.body; // Accept first_message and parameters
+    const { number, prompt, first_message, parameters } = request.body; // Accept first_message
 
     if (!number) {
       return reply.code(400).send({ error: "Phone number is required" });
@@ -65,7 +65,7 @@ export function registerOutboundRoutes(fastify) {
       const call = await twilioClient.calls.create({
         from: TWILIO_PHONE_NUMBER,
         to: number,
-        url: `https://${request.headers.host}/outbound-call-twiml?prompt=${encodeURIComponent(prompt)}&first_message=${encodeURIComponent(first_message)}&parameters=${encodeURIComponent(JSON.stringify(parameters || {}))}`
+        url: `https://${request.headers.host}/outbound-call-twiml?prompt=${encodeURIComponent(prompt)}&first_message=${encodeURIComponent(first_message)}`
       });
 
       reply.send({ 
@@ -86,7 +86,6 @@ export function registerOutboundRoutes(fastify) {
   fastify.all("/outbound-call-twiml", async (request, reply) => {
     const prompt = request.query.prompt || '';
     const first_message = request.query.first_message || 'Hello! How can I assist you today?';
-    const parameters = request.query.parameters ? JSON.parse(decodeURIComponent(request.query.parameters)) : {};
 
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
@@ -94,7 +93,6 @@ export function registerOutboundRoutes(fastify) {
           <Stream url="wss://${request.headers.host}/outbound-media-stream">
             <Parameter name="prompt" value="${prompt}" />
             <Parameter name="first_message" value="${first_message}" />
-            <Parameter name="parameters" value='${JSON.stringify(parameters)}' />
           </Stream>
         </Connect>
       </Response>`;
@@ -125,29 +123,19 @@ export function registerOutboundRoutes(fastify) {
           elevenLabsWs.on("open", () => {
             console.log("[ElevenLabs] Connected to Conversational AI");
 
-            // Extract parameters from customParameters
-            const language = customParameters?.language || 'en';
-            const userId = customParameters?.userId || 'anonymous';
-
             // Send initial configuration with prompt and first message
             const initialConfig = {
               type: "conversation_initiation_client_data",
               conversation_config_override: {
                 agent: {
-                  prompt: { prompt: customParameters?.prompt || "You are a helpful assistant." },
-                  first_message: customParameters?.first_message || "Hello! How can I assist you today?",
-                  language: language, // Using parameters to set language
+                  prompt: { prompt: customParameters?.prompt || "Sei un bell'assistente" },
+                  first_message: customParameters?.first_message || "Ciao Come stai?",
                 },
-              },
-              context: { // Additional context from parameters
-                userId: userId
               }
             };
 
             console.log("[ElevenLabs] Sending initial config with prompt:", initialConfig.conversation_config_override.agent.prompt.prompt);
             console.log("[ElevenLabs] Sending initial config with first message:", initialConfig.conversation_config_override.agent.first_message);
-            console.log("[ElevenLabs] Sending initial config with language:", initialConfig.conversation_config_override.agent.language);
-            console.log("[ElevenLabs] Sending context:", initialConfig.context);
 
             // Send the configuration to ElevenLabs
             elevenLabsWs.send(JSON.stringify(initialConfig));
@@ -240,13 +228,7 @@ export function registerOutboundRoutes(fastify) {
             case "start":
               streamSid = msg.start.streamSid;
               callSid = msg.start.callSid;
-              // Parse parameters from message.start.customParameters
-              try {
-                customParameters = JSON.parse(msg.start.customParameters);
-              } catch (e) {
-                console.error("[Twilio] Error parsing customParameters:", e);
-                customParameters = {};
-              }
+              customParameters = msg.start.customParameters;  // Store parameters
               console.log(`[Twilio] Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
               console.log('[Twilio] Start parameters:', customParameters);
               break;
