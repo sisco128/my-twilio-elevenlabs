@@ -1,5 +1,4 @@
-// Code for authenticated outbound calls & setting custom parameters with your agent
-
+// outbound-routes.js
 import WebSocket from "ws";
 import Twilio from "twilio";
 
@@ -48,17 +47,21 @@ export function registerOutboundRoutes(fastify) {
 
   // Route to initiate outbound calls
   fastify.post("/outbound-call", async (request, reply) => {
-    const { number } = request.body;
+    const { number, prompt, parameters } = request.body; // 'prompt' is now directly from the request
 
     if (!number) {
       return reply.code(400).send({ error: "Phone number is required" });
+    }
+
+    if (!prompt) {
+      return reply.code(400).send({ error: "Prompt is required" });
     }
 
     try {
       const call = await twilioClient.calls.create({
         from: TWILIO_PHONE_NUMBER,
         to: number,
-        url: `https://${request.headers.host}/outbound-call-twiml`
+        url: `https://${request.headers.host}/outbound-call-twiml?prompt=${encodeURIComponent(prompt)}`
       });
 
       reply.send({ 
@@ -77,10 +80,14 @@ export function registerOutboundRoutes(fastify) {
 
   // TwiML route for outbound calls
   fastify.all("/outbound-call-twiml", async (request, reply) => {
+    const prompt = request.query.prompt || '';
+
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
         <Connect>
-          <Stream url="wss://${request.headers.host}/outbound-media-stream" />
+          <Stream url="wss://${request.headers.host}/outbound-media-stream">
+            <Parameter name="prompt" value="${prompt}" />
+          </Stream>
         </Connect>
       </Response>`;
 
@@ -96,11 +103,12 @@ export function registerOutboundRoutes(fastify) {
       let streamSid = null;
       let callSid = null;
       let elevenLabsWs = null;
+      let customParameters = null;  // Add this to store parameters
 
       // Handle WebSocket errors
       ws.on('error', console.error);
 
-      // Set up ElevenLabs connection
+      // Helper function to set up ElevenLabs connection
       const setupElevenLabs = async () => {
         try {
           const signedUrl = await getSignedUrl();
@@ -114,11 +122,13 @@ export function registerOutboundRoutes(fastify) {
               type: "conversation_initiation_client_data",
               conversation_config_override: {
                 agent: {
-                  prompt: { prompt: "Sei babbo natale e vuoi parlare a Giuseppe dei doni che gli porterai questo natale" },
-                  first_message: "Ciao Giuseppe, buongiorno! Come stai oggi? Sono babo Natale, Sei stato un bravo nonnino?",
+                  prompt: { prompt: customParameters?.prompt || "you are a Gary from the phone store" },
+                  first_message: "Hey there! How can I help you today?",
                 },
               }
             };
+
+            console.log("[ElevenLabs] Sending initial config with prompt:", initialConfig.conversation_config_override.agent.prompt.prompt);
 
             // Send the configuration to ElevenLabs
             elevenLabsWs.send(JSON.stringify(initialConfig));
@@ -211,7 +221,9 @@ export function registerOutboundRoutes(fastify) {
             case "start":
               streamSid = msg.start.streamSid;
               callSid = msg.start.callSid;
+              customParameters = msg.start.customParameters;  // Store parameters
               console.log(`[Twilio] Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
+              console.log('[Twilio] Start parameters:', customParameters);
               break;
 
             case "media":
