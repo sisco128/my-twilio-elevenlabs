@@ -47,7 +47,7 @@ export function registerOutboundRoutes(fastify) {
 
   // Route to initiate outbound calls
   fastify.post("/outbound-call", async (request, reply) => {
-    const { number, prompt, parameters } = request.body; // 'prompt' is now directly from the request
+    const { number, prompt, first_message, parameters } = request.body; // Accept first_message and parameters
 
     if (!number) {
       return reply.code(400).send({ error: "Phone number is required" });
@@ -57,11 +57,15 @@ export function registerOutboundRoutes(fastify) {
       return reply.code(400).send({ error: "Prompt is required" });
     }
 
+    if (!first_message) {
+      return reply.code(400).send({ error: "First message is required" });
+    }
+
     try {
       const call = await twilioClient.calls.create({
         from: TWILIO_PHONE_NUMBER,
         to: number,
-        url: `https://${request.headers.host}/outbound-call-twiml?prompt=${encodeURIComponent(prompt)}`
+        url: `https://${request.headers.host}/outbound-call-twiml?prompt=${encodeURIComponent(prompt)}&first_message=${encodeURIComponent(first_message)}&parameters=${encodeURIComponent(JSON.stringify(parameters || {}))}`
       });
 
       reply.send({ 
@@ -81,12 +85,16 @@ export function registerOutboundRoutes(fastify) {
   // TwiML route for outbound calls
   fastify.all("/outbound-call-twiml", async (request, reply) => {
     const prompt = request.query.prompt || '';
+    const first_message = request.query.first_message || 'Hello! How can I assist you today?';
+    const parameters = request.query.parameters ? JSON.parse(decodeURIComponent(request.query.parameters)) : {};
 
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
       <Response>
         <Connect>
           <Stream url="wss://${request.headers.host}/outbound-media-stream">
             <Parameter name="prompt" value="${prompt}" />
+            <Parameter name="first_message" value="${first_message}" />
+            <Parameter name="parameters" value='${JSON.stringify(parameters)}' />
           </Stream>
         </Connect>
       </Response>`;
@@ -117,18 +125,32 @@ export function registerOutboundRoutes(fastify) {
           elevenLabsWs.on("open", () => {
             console.log("[ElevenLabs] Connected to Conversational AI");
 
-            // Send initial configuration with prompt and first message
+            // Extract parameters from customParameters
+            const language = customParameters?.language || 'en';
+            const userId = customParameters?.userId || 'anonymous';
+            const tone = customParameters?.tone || 'neutral';
+
+            // Send initial configuration with prompt, first message, and other parameters
             const initialConfig = {
               type: "conversation_initiation_client_data",
               conversation_config_override: {
                 agent: {
-                  prompt: { prompt: customParameters?.prompt || "you are a Gary from the phone store" },
-                  first_message: "Hey there! How can I help you today?",
+                  prompt: { prompt: customParameters?.prompt || "You are a helpful assistant." },
+                  first_message: customParameters?.first_message || "Hello! How can I assist you today?",
+                  language: language, // Using parameters to set language
+                  tone: tone // Using parameters to set tone
                 },
+              },
+              context: { // Additional context from parameters
+                userId: userId
               }
             };
 
             console.log("[ElevenLabs] Sending initial config with prompt:", initialConfig.conversation_config_override.agent.prompt.prompt);
+            console.log("[ElevenLabs] Sending initial config with first message:", initialConfig.conversation_config_override.agent.first_message);
+            console.log("[ElevenLabs] Sending initial config with language:", initialConfig.conversation_config_override.agent.language);
+            console.log("[ElevenLabs] Sending initial config with tone:", initialConfig.conversation_config_override.agent.tone);
+            console.log("[ElevenLabs] Sending context:", initialConfig.context);
 
             // Send the configuration to ElevenLabs
             elevenLabsWs.send(JSON.stringify(initialConfig));
@@ -221,7 +243,13 @@ export function registerOutboundRoutes(fastify) {
             case "start":
               streamSid = msg.start.streamSid;
               callSid = msg.start.callSid;
-              customParameters = msg.start.customParameters;  // Store parameters
+              // Parse parameters from message.start.customParameters
+              try {
+                customParameters = JSON.parse(msg.start.customParameters);
+              } catch (e) {
+                console.error("[Twilio] Error parsing customParameters:", e);
+                customParameters = {};
+              }
               console.log(`[Twilio] Stream started - StreamSid: ${streamSid}, CallSid: ${callSid}`);
               console.log('[Twilio] Start parameters:', customParameters);
               break;
