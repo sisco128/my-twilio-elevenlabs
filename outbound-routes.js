@@ -128,9 +128,8 @@ export function registerOutboundRoutes(fastify) {
             // Extract parameters from customParameters
             const language = customParameters?.language || 'en';
             const userId = customParameters?.userId || 'anonymous';
-            const tone = customParameters?.tone || 'neutral';
 
-            // Send initial configuration with prompt, first message, and other parameters
+            // Send initial configuration with prompt and first message
             const initialConfig = {
               type: "conversation_initiation_client_data",
               conversation_config_override: {
@@ -138,7 +137,6 @@ export function registerOutboundRoutes(fastify) {
                   prompt: { prompt: customParameters?.prompt || "You are a helpful assistant." },
                   first_message: customParameters?.first_message || "Hello! How can I assist you today?",
                   language: language, // Using parameters to set language
-                  tone: tone // Using parameters to set tone
                 },
               },
               context: { // Additional context from parameters
@@ -149,7 +147,6 @@ export function registerOutboundRoutes(fastify) {
             console.log("[ElevenLabs] Sending initial config with prompt:", initialConfig.conversation_config_override.agent.prompt.prompt);
             console.log("[ElevenLabs] Sending initial config with first message:", initialConfig.conversation_config_override.agent.first_message);
             console.log("[ElevenLabs] Sending initial config with language:", initialConfig.conversation_config_override.agent.language);
-            console.log("[ElevenLabs] Sending initial config with tone:", initialConfig.conversation_config_override.agent.tone);
             console.log("[ElevenLabs] Sending context:", initialConfig.context);
 
             // Send the configuration to ElevenLabs
