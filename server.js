@@ -19,14 +19,25 @@ fastify.register(formBody);
 
 // API Key authentication
 fastify.addHook("preHandler", async (request, reply) => {
-  // Exclude public routes if any (optional)
-  const publicRoutes = ['/public-route']; // Add any public routes here
-  if (publicRoutes.includes(request.routerPath)) {
-    return;
+  // Define public routes that do not require API key authentication
+  const publicRoutes = [
+    "/outbound-call-twiml",
+    "/outbound-media-stream",
+    "/test-form" // Add any other public routes if necessary
+  ];
+
+  // Extract the pathname from the URL
+  const url = new URL(`http://${request.headers.host}${request.raw.url}`);
+  const pathname = url.pathname;
+
+  // Check if the current route is public
+  if (publicRoutes.includes(pathname)) {
+    return; // Skip API key authentication
   }
 
+  // For non-public routes, validate the API key
   const apiKey = request.headers['x-api-key'];
-  if (!apiKey || apiKey !== process.env.API_KEY) { // Ensure you set API_KEY in your environment
+  if (!apiKey || apiKey !== process.env.API_KEY) {
     reply.code(401).send({ error: "Unauthorized" });
   }
 });
